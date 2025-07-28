@@ -67,7 +67,7 @@
         </div>
     </header>
 
-    <main class="container mx-auto p-4 md:p-8">
+    <main id="app-container" class="container mx-auto p-4 md:p-8">
 
         <!-- System Components: Form and Dashboard -->
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -146,6 +146,22 @@
             </div>
         </div>
     </main>
+    
+    <!-- Configuration Error Message -->
+    <div id="config-error" class="container mx-auto p-8 text-center hidden">
+        <div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-6 rounded-lg shadow-lg">
+            <h2 class="font-bold text-xl mb-2">Configuration Needed</h2>
+            <p>This application cannot connect to the database because the Firebase configuration is missing.</p>
+            <p class="mt-4">To fix this, please follow these steps:</p>
+            <ol class="text-left list-decimal list-inside mt-2 bg-red-50 p-4 rounded">
+                <li>Go to the Firebase Console and create a new project.</li>
+                <li>Add a new Web App to your project.</li>
+                <li>Copy the `firebaseConfig` object provided.</li>
+                <li>Open this HTML file, find the `firebaseConfig` variable in the script at the bottom, and paste your keys there.</li>
+            </ol>
+        </div>
+    </div>
+
 
     <!-- Firebase SDK -->
     <script type="module">
@@ -155,28 +171,18 @@
         import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-auth.js";
 
         // --- IMPORTANT: CONFIGURE FIREBASE ---
-        // To use this project, you must create your own Firebase project and paste your configuration here.
-        // 1. Go to https://console.firebase.google.com/
-        // 2. Create a new project.
-        // 3. Go to Project Settings > General, and under "Your apps", create a new Web App.
-        // 4. Copy the firebaseConfig object and paste it below.
-        // 5. In your Firebase console, go to Firestore Database > Create database > Start in test mode.
         const firebaseConfig = {
-  		apiKey: "AIzaSyCHnw5rDokQkngZgMEOztwlmsioup_4Tjg",
-  		authDomain: "it-helpdesk-dashboard.firebaseapp.com",
-  		projectId: "it-helpdesk-dashboard",
-  		storageBucket: "it-helpdesk-dashboard.firebasestorage.app",
-  		messagingSenderId: "192526517192",
-  		appId: "1:192526517192:web:d2e42beaf9dc84124bb6fd",
-  		measurementId: "G-L85ZN0GM9C"
-	};
-
-        // Initialize Firebase App
-        const app = initializeApp(firebaseConfig);
-        const db = getFirestore(app);
-        const auth = getAuth(app);
+            apiKey: "YOUR_API_KEY",
+            authDomain: "YOUR_AUTH_DOMAIN",
+            projectId: "YOUR_PROJECT_ID",
+            storageBucket: "YOUR_STORAGE_BUCKET",
+            messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
+            appId: "YOUR_APP_ID"
+        };
 
         // --- DOM ELEMENTS ---
+        const appContainer = document.getElementById('app-container');
+        const configErrorEl = document.getElementById('config-error');
         const ticketForm = document.getElementById('ticket-form');
         const formMessage = document.getElementById('form-message');
         const totalOpenEl = document.getElementById('total-open-tickets');
@@ -219,12 +225,10 @@
         };
 
         // --- FIREBASE & SYSTEM LOGIC ---
-
-        // 1. Add a new ticket to Firestore
         const addTicket = async (e) => {
             e.preventDefault();
             formMessage.textContent = 'Submitting...';
-
+            const db = getFirestore();
             try {
                 const ticketData = {
                     employeeName: ticketForm['employee-name'].value,
@@ -234,10 +238,7 @@
                     status: 'Open',
                     createdAt: serverTimestamp()
                 };
-                
-                // Add a new document with a generated id.
                 await addDoc(collection(db, "tickets"), ticketData);
-                
                 formMessage.textContent = 'Ticket submitted successfully!';
                 formMessage.className = 'mt-4 text-center text-green-600';
                 ticketForm.reset();
@@ -249,37 +250,24 @@
             setTimeout(() => { formMessage.textContent = ''; }, 3000);
         };
 
-        // 2. Listen for real-time updates and render the dashboard
-        const renderDashboard = () => {
+        const renderDashboard = (db) => {
             const ticketsCol = collection(db, 'tickets');
             onSnapshot(ticketsCol, (snapshot) => {
                 const tickets = [];
                 snapshot.forEach(doc => tickets.push({ id: doc.id, ...doc.data() }));
-
-                // --- Analysis Engine ---
                 const openTickets = tickets.filter(t => t.status === 'Open');
-                
-                // KPI Calculations
-                const totalOpen = openTickets.length;
-                const highUrgency = openTickets.filter(t => t.urgency === 'High').length;
-                
-                // Update KPI Cards
-                totalOpenEl.textContent = totalOpen;
-                highUrgencyEl.textContent = highUrgency;
+                totalOpenEl.textContent = openTickets.length;
+                highUrgencyEl.textContent = openTickets.filter(t => t.urgency === 'High').length;
 
-                // Chart Data Calculations
                 const categoryCounts = { 'Hardware': 0, 'Software': 0, 'Network': 0, 'Password Reset': 0 };
                 const urgencyCounts = { 'Low': 0, 'Medium': 0, 'High': 0 };
-
                 openTickets.forEach(ticket => {
-                    categoryCounts[ticket.category]++;
-                    urgencyCounts[ticket.urgency]++;
+                    if(categoryCounts[ticket.category] !== undefined) categoryCounts[ticket.category]++;
+                    if(urgencyCounts[ticket.urgency] !== undefined) urgencyCounts[ticket.urgency]++;
                 });
 
-                // Update Charts
                 categoryChart.data.datasets[0].data = Object.values(categoryCounts);
                 categoryChart.update();
-
                 urgencyChart.data.datasets[0].data = Object.values(urgencyCounts);
                 urgencyChart.update();
             });
@@ -288,19 +276,30 @@
         // --- INITIALIZATION ---
         window.onload = async () => {
             initCharts();
+
+            if (firebaseConfig.apiKey === "YOUR_API_KEY") {
+                appContainer.classList.add('hidden');
+                configErrorEl.classList.remove('hidden');
+                return;
+            }
             
             try {
+                const app = initializeApp(firebaseConfig);
+                const db = getFirestore(app);
+                const auth = getAuth(app);
+                
                 const userCredential = await signInAnonymously(auth);
                 const userId = userCredential.user.uid;
                 userIdDisplay.textContent = `Session ID: ${userId.substring(0, 8)}...`;
                 
-                // Start listening for data after successful authentication
-                renderDashboard();
+                renderDashboard(db);
                 ticketForm.addEventListener('submit', addTicket);
 
             } catch (error) {
-                console.error("Firebase Authentication Error:", error);
-                alert("Could not connect to the system. Please check your Firebase configuration and security rules.");
+                console.error("Firebase Initialization Error:", error);
+                appContainer.classList.add('hidden');
+                configErrorEl.classList.remove('hidden');
+                configErrorEl.querySelector('p').textContent = `An error occurred during Firebase initialization: ${error.message}. Please double-check your configuration keys.`;
             }
         };
 
